@@ -29,7 +29,8 @@ ENV APPLICATIONINSIGHTS_CONNECTION_STRING=${applicationinsights_connection_strin
 ARG logto_oss_survey_endpoint=
 ENV LOGTO_OSS_SURVEY_ENDPOINT=${logto_oss_survey_endpoint}
 
-RUN pnpm -r build
+# Console (vite) build exceeds Node's default heap limit; raise it for the build only
+RUN NODE_OPTIONS=--max-old-space-size=4096 pnpm -r build
 
 ### Add official connectors ###
 ARG additional_connector_args

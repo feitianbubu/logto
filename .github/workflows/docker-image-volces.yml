@@ -1,0 +1,75 @@
+name: Publish Docker image (Volcano CR)
+
+on:
+  push:
+    branches:
+      - dev
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Custom image tag (optional, defaults to git describe)'
+        required: false
+        type: string
+
+# 避免连续 push 时并发构建、旧构建反超 latest 标签
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: docker.everai.cloud
+  IMAGE_NAME: skynono/logto
+
+jobs:
+  build_and_push:
+    name: Build & push AMD64 Docker image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          # git describe 只需要提交历史和 tag;treeless clone 跳过历史 blob/tree
+          fetch-depth: 0
+          filter: tree:0
+
+      - name: Resolve version
+        id: v
+        env:
+          INPUT_TAG: ${{ inputs.tag_name }}
+        run: |
+          # fetch-depth: 0 已经带上本仓库的 v* tag(上游 tag 由本地 fetch 后 push 同步);
+          # 没有 tag 时 --always 退回 commit SHA
+          TAG="${INPUT_TAG:-$(git describe --tags --match 'v*' --always)}"
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Image tag: $TAG"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Volcano CR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.MIRROR_USERNAME }}
+          password: ${{ secrets.MIRROR_PASSWORD }}
+
+      # 不用 gha 层缓存:Dockerfile 先 COPY . . 再安装构建,源码一变重层全失效;
+      # 默认的 mode=min 也要为必然 miss 的最终层每次回传 1~2GB,纯开销
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          # latest 只跟 dev:手动 dispatch 其他分支时不该顶掉生产在拉的标签
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.v.outputs.version }}
+            ${{ github.ref == 'refs/heads/dev' && format('{0}/{1}:latest', env.REGISTRY, env.IMAGE_NAME) || '' }}
+          # 关闭 buildx 默认的 provenance/SBOM 附证:它会把镜像变成带 unknown/unknown
+          # 条目的 OCI index,VCI 拉取会失败
+          provenance: false
+          sbom: false
