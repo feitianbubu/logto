@@ -34,3 +34,30 @@ export const mockedUserInfoResponse = {
   real_name: 'Zhang San',
   ext_info: { org_user_code: mockedOrgUserCode },
 };
+
+export const btsOrigin = 'https://ucbts.example.com';
+
+export const btsTokenPath = '/v1/tokens';
+
+export const accountInfoPath = '/v1.1/idp/get_account_info';
+
+export const mockedBtsConfig = {
+  ...mockedConfig,
+  btsAccount: 'mock-bts-account',
+  btsSecret: 'mock-bts-secret',
+  btsSdpAppId: 'mock-bts-sdp-app-id',
+  btsTokenUrl: `${btsOrigin}${btsTokenPath}`,
+  accountInfoEndpoint: `${ndGatewayOrigin}${accountInfoPath}`,
+};
+
+export const mockedBtsTokenResponse = {
+  access_token: 'mock-bts-access-token',
+  mac_key: 'mock-bts-mac-key',
+};
+
+export const mockedAccountId = 930_314;
+
+export const mockedAccountInfoResponse = {
+  account_type: 'person',
+  account_id: mockedAccountId,
+};

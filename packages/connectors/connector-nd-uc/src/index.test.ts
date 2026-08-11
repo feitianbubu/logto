@@ -1,10 +1,18 @@
 import nock from 'nock';
+import { createHmac } from 'node:crypto';
 
 import { ConnectorErrorCodes } from '@logto/connector-kit';
 
 import createConnector from './index.js';
 import {
+  accountInfoPath,
+  btsOrigin,
+  btsTokenPath,
   mockedAccessTokenResponse,
+  mockedAccountId,
+  mockedAccountInfoResponse,
+  mockedBtsConfig,
+  mockedBtsTokenResponse,
   mockedCode,
   mockedConfig,
   mockedOpenId,
@@ -14,6 +22,7 @@ import {
   tokenPath,
   userInfoPath,
 } from './mock.js';
+import { clearBtsTokenCache } from './utils.js';
 
 const getConfig = vi.fn().mockResolvedValue(mockedConfig);
 
@@ -88,19 +97,37 @@ describe('getUserInfo', () => {
     });
   });
 
-  // The subject must never fall back to open_id: it has to match the oidc_id clinx stores.
+  // Without BTS configured there is no fallback; the subject must never degrade to open_id.
   it.each([
     ['missing', { ext_info: undefined }],
     ['blank', { ext_info: { org_user_code: '  ' } }],
-  ])('throws InvalidResponse when ext_info.org_user_code is %s', async (_, overrides) => {
-    nock(ndGatewayOrigin).post(tokenPath).reply(200, mockedAccessTokenResponse);
-    nock(ndGatewayOrigin)
-      .post(userInfoPath)
-      .reply(200, { ...mockedUserInfoResponse, ...overrides });
+  ])(
+    'throws InvalidResponse when org_user_code is %s and BTS is not configured',
+    async (_, overrides) => {
+      nock(ndGatewayOrigin).post(tokenPath).reply(200, mockedAccessTokenResponse);
+      nock(ndGatewayOrigin)
+        .post(userInfoPath)
+        .reply(200, { ...mockedUserInfoResponse, ...overrides });
+
+      const connector = await createConnector({ getConfig });
+      const promise = connector.getUserInfo({ code: mockedCode }, vi.fn());
+      await expect(promise).rejects.toMatchObject({
+        code: ConnectorErrorCodes.InvalidResponse,
+      });
+      // The UC response must be embedded: the audit log is the only place it survives.
+      await expect(promise).rejects.toThrow(mockedUserInfoResponse.real_name);
+    }
+  );
+
+  // A partial BTS config must be rejected up front, not discovered inside a user's sign-in.
+  it('throws InvalidConfig when only part of the BTS config is set', async () => {
+    const getConfig = vi
+      .fn()
+      .mockResolvedValue({ ...mockedConfig, btsAccount: 'mock-bts-account' });
 
     const connector = await createConnector({ getConfig });
     await expect(connector.getUserInfo({ code: mockedCode }, vi.fn())).rejects.toMatchObject({
-      code: ConnectorErrorCodes.InvalidResponse,
+      code: ConnectorErrorCodes.InvalidConfig,
     });
   });
 
@@ -187,5 +214,124 @@ describe('getUserInfo', () => {
     await expect(connector.getUserInfo({ code: mockedCode }, vi.fn())).rejects.toMatchObject({
       code: ConnectorErrorCodes.SocialAccessTokenInvalid,
     });
+  });
+});
+
+const mockLoginWithoutOrgUserCode = () => {
+  nock(ndGatewayOrigin).post(tokenPath).reply(200, mockedAccessTokenResponse);
+  nock(ndGatewayOrigin)
+    .post(userInfoPath)
+    .reply(200, { ...mockedUserInfoResponse, ext_info: {} });
+};
+
+describe('getUserInfo BTS account_id fallback', () => {
+  const getConfig = vi.fn().mockResolvedValue(mockedBtsConfig);
+
+  afterEach(() => {
+    nock.cleanAll();
+    vi.clearAllMocks();
+    clearBtsTokenCache();
+  });
+
+  // Protects the BTS contract: the token-exchange `sign`, the request MAC, the bare account_id.
+  it('resolves the subject via BTS when org_user_code is missing', async () => {
+    mockLoginWithoutOrgUserCode();
+    nock(btsOrigin)
+      .post(
+        btsTokenPath,
+        (body: Record<string, unknown>) =>
+          body.app_name === mockedBtsConfig.btsAccount &&
+          body.app_secret === 'mock******' &&
+          body.sign ===
+            createHmac('sha256', mockedBtsConfig.btsSecret)
+              .update(`${mockedBtsConfig.btsAccount}:${String(body.timestamp)}`)
+              .digest('base64')
+      )
+      .reply(200, mockedBtsTokenResponse);
+    nock(ndGatewayOrigin)
+      .matchHeader('sdp-app-id', mockedBtsConfig.btsSdpAppId)
+      .matchHeader('authorization', (value) => {
+        const match = /^BTS id="([^"]+)",nonce="(\d{13}:[\da-z]{8})",mac="(.+)"$/.exec(
+          String(value)
+        );
+
+        if (!match || match[1] !== mockedBtsTokenResponse.access_token) {
+          return false;
+        }
+
+        const expectedMac = createHmac('sha256', mockedBtsTokenResponse.mac_key)
+          .update(
+            [
+              match[2],
+              'POST',
+              accountInfoPath,
+              new URL(ndGatewayOrigin).host,
+              mockedBtsConfig.btsSdpAppId,
+              '',
+            ].join('\n')
+          )
+          .digest('base64');
+
+        return match[3] === expectedMac;
+      })
+      .post(accountInfoPath, { open_id: mockedOpenId })
+      .reply(200, mockedAccountInfoResponse);
+
+    const connector = await createConnector({ getConfig });
+    const socialUserInfo = await connector.getUserInfo({ code: mockedCode }, vi.fn());
+
+    expect(socialUserInfo).toMatchObject({ id: String(mockedAccountId) });
+  });
+
+  it('reuses the cached BTS token across sign-ins', async () => {
+    const btsTokenScope = nock(btsOrigin).post(btsTokenPath).reply(200, mockedBtsTokenResponse);
+    nock(ndGatewayOrigin).post(accountInfoPath).twice().reply(200, mockedAccountInfoResponse);
+
+    const connector = await createConnector({ getConfig });
+
+    mockLoginWithoutOrgUserCode();
+    const firstSignIn = await connector.getUserInfo({ code: mockedCode }, vi.fn());
+    mockLoginWithoutOrgUserCode();
+    const secondSignIn = await connector.getUserInfo({ code: mockedCode }, vi.fn());
+
+    expect(firstSignIn).toMatchObject({ id: String(mockedAccountId) });
+    expect(secondSignIn).toMatchObject({ id: String(mockedAccountId) });
+    // A second token request would have failed: only one interceptor is armed.
+    expect(btsTokenScope.isDone()).toBe(true);
+  });
+
+  it('fails closed when BTS get_account_info fails', async () => {
+    mockLoginWithoutOrgUserCode();
+    nock(btsOrigin).post(btsTokenPath).reply(200, mockedBtsTokenResponse);
+    nock(ndGatewayOrigin).post(accountInfoPath).reply(500, 'boom');
+
+    const connector = await createConnector({ getConfig });
+    await expect(connector.getUserInfo({ code: mockedCode }, vi.fn())).rejects.toMatchObject({
+      code: ConnectorErrorCodes.General,
+    });
+  });
+
+  it('fails closed when BTS returns an empty account_id', async () => {
+    mockLoginWithoutOrgUserCode();
+    nock(btsOrigin).post(btsTokenPath).reply(200, mockedBtsTokenResponse);
+    nock(ndGatewayOrigin)
+      .post(accountInfoPath)
+      .reply(200, { account_type: 'person', account_id: ' ' });
+
+    const connector = await createConnector({ getConfig });
+    await expect(connector.getUserInfo({ code: mockedCode }, vi.fn())).rejects.toMatchObject({
+      code: ConnectorErrorCodes.InvalidResponse,
+    });
+  });
+
+  it('keeps using org_user_code when it is present', async () => {
+    nock(ndGatewayOrigin).post(tokenPath).reply(200, mockedAccessTokenResponse);
+    nock(ndGatewayOrigin).post(userInfoPath).reply(200, mockedUserInfoResponse);
+
+    const connector = await createConnector({ getConfig });
+    const socialUserInfo = await connector.getUserInfo({ code: mockedCode }, vi.fn());
+
+    // No BTS interceptor is armed: any BTS call would have failed the test.
+    expect(socialUserInfo).toMatchObject({ id: mockedOrgUserCode });
   });
 });

@@ -18,6 +18,28 @@ export const ndUcConfigGuard = oauth2ConfigGuard
      * the authorization page warns `sdp-app-id为空`.
      */
     sdpAppId: z.string().optional(),
+    /**
+     * BTS credentials for the account_id fallback used when the profile carries no
+     * `ext_info.org_user_code` (outsourced staff). When unset, such sign-ins fail closed.
+     * `btsSdpAppId` is the BTS application's `sdp-app-id` — a different value from `sdpAppId`.
+     */
+    btsAccount: z.string().optional(),
+    btsSecret: z.string().optional(),
+    btsSdpAppId: z.string().optional(),
+    btsTokenUrl: z.string().optional(),
+    accountInfoEndpoint: z.string().optional(),
+  })
+  // All-or-none: a partial BTS config would otherwise validate at save time and only fail inside
+  // a user's sign-in.
+  .superRefine(({ btsAccount, btsSecret, btsSdpAppId }, ctx) => {
+    const btsFields = [btsAccount, btsSecret, btsSdpAppId];
+
+    if (btsFields.some(Boolean) && !btsFields.every(Boolean)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'btsAccount, btsSecret and btsSdpAppId must be set together (or all left empty)',
+      });
+    }
   });
 
 export type NdUcConfig = z.infer<typeof ndUcConfigGuard>;
@@ -44,4 +66,14 @@ export const userInfoResponseGuard = z.object({
   real_name: z.string().optional().nullable(),
   user_id: z.unknown().optional(),
   ext_info: z.object({ org_user_code: z.string().optional() }).optional().nullable(),
+});
+
+export const btsTokenResponseGuard = z.object({
+  access_token: z.string(),
+  mac_key: z.string(),
+});
+
+export const accountInfoResponseGuard = z.object({
+  account_type: z.string().optional(),
+  account_id: z.union([z.number(), z.string()]),
 });

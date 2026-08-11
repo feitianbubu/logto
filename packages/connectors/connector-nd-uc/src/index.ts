@@ -1,5 +1,4 @@
 import { conditional } from '@silverhand/essentials';
-import type { ZodType, z } from 'zod';
 
 import {
   ConnectorError,
@@ -7,7 +6,6 @@ import {
   validateConfig,
   ConnectorType,
   jsonGuard,
-  parseJson,
 } from '@logto/connector-kit';
 import type {
   GetAuthorizationUri,
@@ -17,11 +15,11 @@ import type {
   GetConnectorConfig,
 } from '@logto/connector-kit';
 import { oauth2AuthResponseGuard } from '@logto/connector-oauth';
-import ky, { HTTPError } from 'ky';
-import type { KyInstance } from 'ky';
+import { HTTPError } from 'ky';
 
-import { defaultMetadata, defaultScope, defaultTimeout } from './constant.js';
+import { defaultMetadata, defaultScope } from './constant.js';
 import { accessTokenResponseGuard, ndUcConfigGuard, userInfoResponseGuard } from './types.js';
+import { getBtsAccountId, ndHttp, postNdJson } from './utils.js';
 
 const getAuthorizationUri =
   (getConfig: GetConnectorConfig): GetAuthorizationUri =>
@@ -48,31 +46,6 @@ const getAuthorizationUri =
     ).toString();
   };
 
-/**
- * Unlike standard OAuth2, the ND gateway's WAF rejects `application/x-www-form-urlencoded` with
- * 415 WAF/UNSUPPORTED_MEDIA_TYPE, so every call posts JSON.
- *
- * Returns the unvalidated body alongside the parsed one: ND adds scope-dependent fields that the
- * guards do not declare, and those have to survive into `rawData`.
- */
-const postNdJson = async <T extends ZodType<unknown>>(
-  ndApi: KyInstance,
-  url: string,
-  json: Record<string, string>,
-  guard: T
-): Promise<{ data: z.infer<T>; raw: unknown }> => {
-  const parsed = parseJson(await ndApi.post(url, { json }).text());
-  // The beta environment double-encodes the body as a JSON string; unwrap one level.
-  const raw = typeof parsed === 'string' ? parseJson(parsed) : parsed;
-  const result = guard.safeParse(raw);
-
-  if (!result.success) {
-    throw new ConnectorError(ConnectorErrorCodes.InvalidResponse, result.error);
-  }
-
-  return { data: result.data, raw };
-};
-
 const getUserInfo =
   (getConfig: GetConnectorConfig): GetUserInfo =>
   async (data) => {
@@ -85,13 +58,8 @@ const getUserInfo =
     const config = await getConfig(defaultMetadata.id);
     validateConfig(config, ndUcConfigGuard);
 
-    // The ND gateway returns 406 for ky's default `Accept: text/*`, so request JSON explicitly.
-    const ndApi = ky.extend({
-      headers: {
-        accept: 'application/json',
-        ...conditional(config.sdpAppId && { 'sdp-app-id': config.sdpAppId }),
-      },
-      timeout: defaultTimeout,
+    const ndApi = ndHttp.extend({
+      headers: conditional(config.sdpAppId && { 'sdp-app-id': config.sdpAppId }),
     });
 
     try {
@@ -116,27 +84,18 @@ const getUserInfo =
         userInfoResponseGuard
       );
 
-      // The subject must be the employee code: it is what clinx stores as oidc_id, and unlike the
-      // per-app open_id it survives a UC client re-registration. Fail closed — falling back to
-      // open_id would mix two key spaces in the identity store.
+      // The subject must be an employee code: it is what clinx stores as oidc_id, and unlike the
+      // per-app open_id it survives a UC client re-registration. Never fall back to open_id.
       const orgUserCode = conditional(userInfo.ext_info?.org_user_code?.trim());
-
-      if (!orgUserCode) {
-        // The full response is embedded so the audit log shows what UC returns for accounts
-        // without an employee code (e.g. outsourced staff) — the failure path stores it nowhere else.
-        throw new ConnectorError(
-          ConnectorErrorCodes.InvalidResponse,
-          `missing ext_info.org_user_code: only org accounts with an employee code are supported; user info: ${JSON.stringify(rawUserInfo)}`
-        );
-      }
+      const subject = orgUserCode ?? (await getBtsAccountId(config, openId, rawUserInfo));
 
       return {
-        id: orgUserCode,
+        id: subject,
         // ND often returns empty strings rather than absent fields, so fall through empty values.
         name:
           conditional(userInfo.real_name?.trim()) ??
           conditional(userInfo.nick_name?.trim()) ??
-          orgUserCode,
+          subject,
         avatar: conditional(userInfo.avatar_url?.trim()),
         // The subject is the employee code, so keep open_id (and scope-dependent extras)
         // retrievable via rawData.

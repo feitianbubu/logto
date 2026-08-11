@@ -9,6 +9,11 @@ import {
 
 export const defaultScope = 'scope_base';
 
+export const defaultBtsTokenUrl = 'https://ucbts.101.com/v1/tokens';
+
+export const defaultAccountInfoEndpoint =
+  'https://uc-gateway.sdp.101.com/v1.1/idp/get_account_info';
+
 export const defaultMetadata: ConnectorMetadata = {
   id: 'nd-uc-universal',
   target: 'nd-uc',
@@ -72,6 +77,45 @@ export const defaultMetadata: ConnectorMetadata = {
       placeholder: '<sdp-app-id>',
       description:
         'The ND application id. Sent as the `sdp-app-id` query parameter to the authorization page and as the `sdp-app-id` header to the UC gateway. Optional, but the authorization page shows an `sdp-app-id为空` warning when it is missing.',
+    },
+    {
+      key: 'btsAccount',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'BTS Account',
+      required: false,
+      description:
+        'BTS app name, used to resolve an account_id for accounts without an employee code (outsourced staff). Leave empty to fail such sign-ins.',
+    },
+    {
+      key: 'btsSecret',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'BTS Secret',
+      required: false,
+      description: 'BTS app secret paired with the BTS account.',
+    },
+    {
+      key: 'btsSdpAppId',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'BTS SDP App ID',
+      required: false,
+      description:
+        'The `sdp-app-id` header for the BTS get_account_info call. This is a different value from the SDP App ID above — do not reuse it.',
+    },
+    {
+      key: 'btsTokenUrl',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'BTS Token URL',
+      required: false,
+      defaultValue: defaultBtsTokenUrl,
+      description: 'BTS token exchange endpoint.',
+    },
+    {
+      key: 'accountInfoEndpoint',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'Account Info Endpoint',
+      required: false,
+      defaultValue: defaultAccountInfoEndpoint,
+      description: 'BTS-authenticated POST endpoint that maps an open_id to its account_id.',
     },
   ],
 };

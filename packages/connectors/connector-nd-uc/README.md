@@ -16,7 +16,10 @@ section 4.1 网站应用接入):
    and an `open_id`.
 4. It reads the profile from `POST {User Info Endpoint}` with `{ open_id, access_token }`.
 
-The stable subject is `open_id`, mapped to the social user id.
+The subject (social user id) is the **employee code**: `ext_info.org_user_code` when the profile
+carries one, otherwise the BTS `account_id` resolved from the `open_id` (same employee-code
+namespace, so both map to the same account). It is never `open_id`, which is per-app and does not
+survive a UC client re-registration.
 
 ## Configuration
 
@@ -29,6 +32,11 @@ The stable subject is `open_id`, mapped to the social user id.
 | User Info Endpoint | POST endpoint returning the profile for an open_id. | `https://uc-gateway.sdp.101.com/v1.1/oauth2/get_user_info` |
 | Scope | Comma-separated; `scope_base` (nickname/avatar/gender), `scope_mobile`, `scope_email`. | `scope_base` |
 | SDP App ID | ND application id, sent to the authorization page as a query parameter and to the gateway as the `sdp-app-id` header. Optional, but the page warns `sdp-app-id为空` without it. | — |
+| BTS Account | BTS app name for the account_id fallback (accounts without an employee code, e.g. outsourced staff). Unset ⇒ such sign-ins fail closed. | — |
+| BTS Secret | BTS app secret paired with the BTS account. | — |
+| BTS SDP App ID | `sdp-app-id` header for the BTS get_account_info call. **Not** the same value as SDP App ID above. | — |
+| BTS Token URL | BTS token exchange endpoint. | `https://ucbts.101.com/v1/tokens` |
+| Account Info Endpoint | BTS-authenticated POST endpoint mapping an open_id to its account_id. | `https://uc-gateway.sdp.101.com/v1.1/idp/get_account_info` |
 
 The `redirect_uri` must match one of the safe domains registered for this application on the ND IDP.
 
@@ -44,8 +52,13 @@ defaults use.
 
 ## Notes
 
-- ND is OAuth2, not OIDC: there is no `id_token`, the subject is `open_id`, and the user info API is
-  a custom `POST` (not the standard `GET`+`Bearer`). Profiles carry no email.
+- ND is OAuth2, not OIDC: there is no `id_token`, and the user info API is a custom `POST` (not the
+  standard `GET`+`Bearer`). Profiles carry no email.
+- UC returns an empty `ext_info` for accounts without an employee code (outsourced staff, virtual
+  orgs). For those the connector calls BTS `get_account_info` with the `open_id`; the returned
+  `account_id` is the HR employee code, so it fills the same subject slot without a prefix. The BTS
+  token (48h) is cached in memory for 24h. If neither an `org_user_code` nor a BTS `account_id` is
+  available, the sign-in fails closed.
 - The token endpoint takes JSON, not the OAuth2-standard `application/x-www-form-urlencoded`: the
   gateway's WAF answers `415 WAF/UNSUPPORTED_MEDIA_TYPE` to a form body regardless of `charset`.
 - ND user info does not return the numeric org `user_id`; if a scope surfaces it, it is preserved in
