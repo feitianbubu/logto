@@ -29,13 +29,23 @@ export const postNdJson = async <T extends ZodType<unknown>>(
   json: Record<string, unknown>,
   guard: T
 ): Promise<{ data: z.infer<T>; raw: unknown }> => {
-  const parsed = parseJson(await ndApi.post(url, { json }).text());
+  const body = await ndApi.post(url, { json }).text();
+  // Errors carry the endpoint and a body snippet: a 200 with a non-JSON body (proxy or gateway
+  // placeholder page, wrong URL) is otherwise indistinguishable across the calls in one sign-in.
+  const invalidBody = `non-JSON response from ${url}: ${body.slice(0, 200)}`;
+  const parsed = parseJson(body, ConnectorErrorCodes.InvalidResponse, invalidBody);
   // The beta environment double-encodes the body as a JSON string; unwrap one level.
-  const raw = typeof parsed === 'string' ? parseJson(parsed) : parsed;
+  const raw =
+    typeof parsed === 'string'
+      ? parseJson(parsed, ConnectorErrorCodes.InvalidResponse, invalidBody)
+      : parsed;
   const result = guard.safeParse(raw);
 
   if (!result.success) {
-    throw new ConnectorError(ConnectorErrorCodes.InvalidResponse, result.error);
+    throw new ConnectorError(ConnectorErrorCodes.InvalidResponse, {
+      url,
+      issues: result.error.issues,
+    });
   }
 
   return { data: result.data, raw };
