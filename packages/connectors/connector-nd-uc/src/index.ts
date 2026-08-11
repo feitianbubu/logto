@@ -122,9 +122,11 @@ const getUserInfo =
       const orgUserCode = conditional(userInfo.ext_info?.org_user_code?.trim());
 
       if (!orgUserCode) {
+        // The full response is embedded so the audit log shows what UC returns for accounts
+        // without an employee code (e.g. outsourced staff) — the failure path stores it nowhere else.
         throw new ConnectorError(
           ConnectorErrorCodes.InvalidResponse,
-          'missing ext_info.org_user_code: only org accounts with an employee code are supported'
+          `missing ext_info.org_user_code: only org accounts with an employee code are supported; user info: ${JSON.stringify(rawUserInfo)}`
         );
       }
 
