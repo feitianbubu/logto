@@ -28,6 +28,7 @@ survive a UC client re-registration.
 | Client ID | IDP-assigned application id. | — |
 | Client Secret | IDP-assigned application secret. | — |
 | Authorization Endpoint | uc-component origin; `#/oauth2/authorize` is appended. | `https://uc-component.sdp.101.com` |
+| Mobile Authorization Endpoint | uc-aq origin, used directly for mobile user agents (uc-component drops the oauth2 query when forwarding them itself). | `https://uc-aq.sdp.101.com` |
 | Token Endpoint | Exchanges the code for an access token + open_id. | `https://uc-gateway.sdp.101.com/v1.1/oauth2/access_token` |
 | User Info Endpoint | POST endpoint returning the profile for an open_id. | `https://uc-gateway.sdp.101.com/v1.1/oauth2/get_user_info` |
 | Scope | Comma-separated; `scope_base` (nickname/avatar/gender), `scope_mobile`, `scope_email`. | `scope_base` |
@@ -45,6 +46,7 @@ Hosts per environment (wiki section 9.1 接入地址); the defaults above target
 | | 预生产 | 生产 |
 | --- | --- | --- |
 | `{uc-component}` | `uc-component.beta.101.com` | `uc-component.sdp.101.com` |
+| `{uc-aq}` | — (not verified) | `uc-aq.sdp.101.com` |
 | `{uc-gateway}` | `uc-gateway.beta.101.com` | `uc-gateway.sdp.101.com` |
 
 The wiki writes the uc-component hosts as `http://`; both answer over `https`, which is what the

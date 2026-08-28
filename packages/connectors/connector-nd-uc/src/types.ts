@@ -19,6 +19,12 @@ export const ndUcConfigGuard = oauth2ConfigGuard
      */
     sdpAppId: z.string().optional(),
     /**
+     * Origin of the mobile authorization page (uc-aq). Mobile user agents must be sent there
+     * directly: uc-component forwards them itself but drops the oauth2 query in the process,
+     * stranding the sign-in. Defaults to the public uc-aq origin when unset.
+     */
+    mobileAuthorizationEndpoint: z.string().min(1).optional(),
+    /**
      * BTS credentials for the account_id fallback used when the profile carries no
      * `ext_info.org_user_code` (outsourced staff). When unset, such sign-ins fail closed.
      * `btsSdpAppId` is the BTS application's `sdp-app-id` — a different value from `sdpAppId`.

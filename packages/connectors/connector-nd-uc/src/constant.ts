@@ -9,6 +9,8 @@ import {
 
 export const defaultScope = 'scope_base';
 
+export const defaultMobileAuthorizationEndpoint = 'https://uc-aq.sdp.101.com';
+
 export const defaultBtsTokenUrl = 'https://ucbts.101.com/v1/tokens';
 
 export const defaultAccountInfoEndpoint =
@@ -45,6 +47,15 @@ export const defaultMetadata: ConnectorMetadata = {
       defaultValue: 'https://uc-component.sdp.101.com',
       description:
         'uc-component origin; the connector appends the `#/oauth2/authorize` hash route.',
+    },
+    {
+      key: 'mobileAuthorizationEndpoint',
+      type: ConnectorConfigFormItemType.Text,
+      label: 'Mobile Authorization Endpoint',
+      required: false,
+      defaultValue: defaultMobileAuthorizationEndpoint,
+      description:
+        'uc-aq origin, used directly for mobile user agents because uc-component drops the oauth2 query when forwarding them itself.',
     },
     {
       ...tokenEndpointFormItem,

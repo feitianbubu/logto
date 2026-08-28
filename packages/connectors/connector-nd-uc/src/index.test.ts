@@ -56,6 +56,73 @@ describe('getAuthorizationUri', () => {
     expect(url.searchParams.has('sdp-app-id')).toBe(false);
   });
 
+  it('routes mobile user agents to the uc-aq origin with the query intact', async () => {
+    const connector = await createConnector({ getConfig });
+    const authorizationUri = await connector.getAuthorizationUri(
+      {
+        state: 'some_state',
+        redirectUri: 'https://sso.example.com/callback',
+        connectorId: 'some_connector_id',
+        connectorFactoryId: 'some_connector_factory_id',
+        jti: 'some_jti',
+        headers: {
+          userAgent:
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+        },
+      },
+      vi.fn()
+    );
+
+    const url = new URL(authorizationUri);
+    expect(url.origin).toEqual('https://uc-aq.sdp.101.com');
+    expect(url.hash).toEqual('#/oauth2/authorize');
+    expect(url.searchParams.get('client_id')).toEqual(mockedConfig.clientId);
+    expect(url.searchParams.get('redirect_uri')).toEqual('https://sso.example.com/callback');
+    expect(url.searchParams.get('state')).toEqual('some_state');
+  });
+
+  it('uses the configured mobile authorization endpoint over the default', async () => {
+    const connector = await createConnector({
+      getConfig: vi.fn().mockResolvedValue({
+        ...mockedConfig,
+        mobileAuthorizationEndpoint: 'https://uc-aq.example.com',
+      }),
+    });
+    const authorizationUri = await connector.getAuthorizationUri(
+      {
+        state: 'some_state',
+        redirectUri: 'https://sso.example.com/callback',
+        connectorId: 'some_connector_id',
+        connectorFactoryId: 'some_connector_factory_id',
+        jti: 'some_jti',
+        headers: { userAgent: 'Mozilla/5.0 (Linux; Android 14) Mobile Safari/537.36' },
+      },
+      vi.fn()
+    );
+
+    expect(new URL(authorizationUri).origin).toEqual('https://uc-aq.example.com');
+  });
+
+  it('keeps desktop user agents on the configured authorization endpoint', async () => {
+    const connector = await createConnector({ getConfig });
+    const authorizationUri = await connector.getAuthorizationUri(
+      {
+        state: 'some_state',
+        redirectUri: 'https://sso.example.com/callback',
+        connectorId: 'some_connector_id',
+        connectorFactoryId: 'some_connector_factory_id',
+        jti: 'some_jti',
+        headers: {
+          userAgent:
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        },
+      },
+      vi.fn()
+    );
+
+    expect(new URL(authorizationUri).origin).toEqual(mockedConfig.authorizationEndpoint);
+  });
+
   it('appends `sdp-app-id` when it is configured', async () => {
     const connector = await createConnector({
       getConfig: vi.fn().mockResolvedValue({ ...mockedConfig, sdpAppId: 'mock-sdp-app-id' }),

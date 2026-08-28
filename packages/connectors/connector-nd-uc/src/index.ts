@@ -17,13 +17,13 @@ import type {
 import { oauth2AuthResponseGuard } from '@logto/connector-oauth';
 import { HTTPError } from 'ky';
 
-import { defaultMetadata, defaultScope } from './constant.js';
+import { defaultMetadata, defaultMobileAuthorizationEndpoint, defaultScope } from './constant.js';
 import { accessTokenResponseGuard, ndUcConfigGuard, userInfoResponseGuard } from './types.js';
 import { getBtsAccountId, ndHttp, postNdJson } from './utils.js';
 
 const getAuthorizationUri =
   (getConfig: GetConnectorConfig): GetAuthorizationUri =>
-  async ({ state, redirectUri, scope }) => {
+  async ({ state, redirectUri, scope, headers: { userAgent } }) => {
     const config = await getConfig(defaultMetadata.id);
     validateConfig(config, ndUcConfigGuard);
 
@@ -38,11 +38,19 @@ const getAuthorizationUri =
       ...conditional(config.sdpAppId && { 'sdp-app-id': config.sdpAppId }),
     });
 
-    // The uc-component page is hash-routed: query goes in the `?` segment, the authorize route in
+    // The uc-component page forwards mobile user agents to uc-aq on its own, but drops the oauth2
+    // query in the process (only `sdp-app-id` survives), stranding the sign-in on the UC fallback
+    // page. Over-matching is safe here — worst case a desktop user sees the mobile login page.
+    const isMobile = /mobile|android|iphone|ipad|ipod/i.test(userAgent ?? '');
+    const authorizationEndpoint = isMobile
+      ? (config.mobileAuthorizationEndpoint ?? defaultMobileAuthorizationEndpoint)
+      : config.authorizationEndpoint;
+
+    // The UC pages are hash-routed: query goes in the `?` segment, the authorize route in
     // `#/oauth2/authorize`.
     return new URL(
       `?${queryParameters.toString()}#/oauth2/authorize`,
-      config.authorizationEndpoint
+      authorizationEndpoint
     ).toString();
   };
 
