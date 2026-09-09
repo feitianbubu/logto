@@ -9,7 +9,11 @@ section 4.1 网站应用接入):
 
 1. Logto redirects the user to the UC authorization page (uc-component) at
    `{Authorization Endpoint}/?response_type=code&client_id=...&redirect_uri=...&scope=...&state=...&sdp-app-id=...#/oauth2/authorize`
-   (`sdp-app-id` is only appended when configured).
+   (`sdp-app-id` is only appended when configured). Mobile user agents go to
+   `{Mobile Authorization Endpoint}/?...same query...#/login` instead: uc-aq's `#/oauth2/authorize`
+   reloads after sign-in and the UC SDK's SSO token sync on reload fails under WebKit's third-party
+   cookie blocking (iOS Safari/Chrome), which wipes the fresh token and returns the user to the login
+   form; `#/login` with the oauth2 query issues the code in the same page load.
 2. After sign-in the page redirects back with `?code=...&state=...`.
 3. The connector exchanges the code at `POST {Token Endpoint}` with a **JSON** body
    (`client_id` + `client_secret` + `code` + `grant_type=authorization_code`) for an `access_token`
@@ -28,7 +32,7 @@ survive a UC client re-registration.
 | Client ID | IDP-assigned application id. | — |
 | Client Secret | IDP-assigned application secret. | — |
 | Authorization Endpoint | uc-component origin; `#/oauth2/authorize` is appended. | `https://uc-component.sdp.101.com` |
-| Mobile Authorization Endpoint | uc-aq origin, used directly for mobile user agents (uc-component drops the oauth2 query when forwarding them itself). | `https://uc-aq.sdp.101.com` |
+| Mobile Authorization Endpoint | uc-aq origin, used directly for mobile user agents (uc-component drops the oauth2 query when forwarding them itself); `#/login` is appended. | `https://uc-aq.sdp.101.com` |
 | Token Endpoint | Exchanges the code for an access token + open_id. | `https://uc-gateway.sdp.101.com/v1.1/oauth2/access_token` |
 | User Info Endpoint | POST endpoint returning the profile for an open_id. | `https://uc-gateway.sdp.101.com/v1.1/oauth2/get_user_info` |
 | Scope | Comma-separated; `scope_base` (nickname/avatar/gender), `scope_mobile`, `scope_email`. | `scope_base` |
@@ -46,7 +50,7 @@ Hosts per environment (wiki section 9.1 接入地址); the defaults above target
 | | 预生产 | 生产 |
 | --- | --- | --- |
 | `{uc-component}` | `uc-component.beta.101.com` | `uc-component.sdp.101.com` |
-| `{uc-aq}` | — (not verified) | `uc-aq.sdp.101.com` |
+| `{uc-aq}` | — (not verified) | `uc-aq.sdp.101.com` (verified 2026-09-09, `#/login` IDP mode) |
 | `{uc-gateway}` | `uc-gateway.beta.101.com` | `uc-gateway.sdp.101.com` |
 
 The wiki writes the uc-component hosts as `http://`; both answer over `https`, which is what the

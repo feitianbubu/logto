@@ -56,7 +56,7 @@ describe('getAuthorizationUri', () => {
     expect(url.searchParams.has('sdp-app-id')).toBe(false);
   });
 
-  it('routes mobile user agents to the uc-aq origin with the query intact', async () => {
+  it('routes mobile user agents to the uc-aq login route with the query intact', async () => {
     const connector = await createConnector({ getConfig });
     const authorizationUri = await connector.getAuthorizationUri(
       {
@@ -75,7 +75,7 @@ describe('getAuthorizationUri', () => {
 
     const url = new URL(authorizationUri);
     expect(url.origin).toEqual('https://uc-aq.sdp.101.com');
-    expect(url.hash).toEqual('#/oauth2/authorize');
+    expect(url.hash).toEqual('#/login');
     expect(url.searchParams.get('client_id')).toEqual(mockedConfig.clientId);
     expect(url.searchParams.get('redirect_uri')).toEqual('https://sso.example.com/callback');
     expect(url.searchParams.get('state')).toEqual('some_state');

@@ -46,12 +46,13 @@ const getAuthorizationUri =
       ? (config.mobileAuthorizationEndpoint ?? defaultMobileAuthorizationEndpoint)
       : config.authorizationEndpoint;
 
-    // The UC pages are hash-routed: query goes in the `?` segment, the authorize route in
-    // `#/oauth2/authorize`.
-    return new URL(
-      `?${queryParameters.toString()}#/oauth2/authorize`,
-      authorizationEndpoint
-    ).toString();
+    // The UC pages are hash-routed. uc-aq's `#/oauth2/authorize` reloads after sign-in, and on
+    // every load the UC SDK re-syncs the token with the cross-site SSO domain; WebKit blocks that
+    // third-party cookie, the sync fails and wipes the fresh token, so the user lands back on the
+    // login form. `#/login` with the oauth2 query attached issues the code in the same page load.
+    const route = isMobile ? '#/login' : '#/oauth2/authorize';
+
+    return new URL(`?${queryParameters.toString()}${route}`, authorizationEndpoint).toString();
   };
 
 const getUserInfo =
